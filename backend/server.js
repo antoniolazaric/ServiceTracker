@@ -3,11 +3,14 @@ const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -182,6 +185,103 @@ app.get("/api/orders/:id/notes", provjeriToken, async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ notes: data });
+});
+
+app.get("/api/analytics", provjeriToken, async (req, res) => {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("created_at, completed_at");
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const mjeseci = {};
+
+  for (const nalog of data) {
+    const mjesec = nalog.created_at.slice(0, 7);
+
+    if (!mjeseci[mjesec]) {
+      mjeseci[mjesec] = { mjesec: mjesec, broj: 0, trajanja: [] };
+    }
+
+    mjeseci[mjesec].broj++;
+
+    if (nalog.completed_at) {
+      const pocetak = new Date(nalog.created_at);
+      const kraj = new Date(nalog.completed_at);
+      const dana = (kraj - pocetak) / (1000 * 60 * 60 * 24);
+      mjeseci[mjesec].trajanja.push(dana);
+    }
+  }
+
+  const rezultat = Object.values(mjeseci).map((m) => {
+    let prosjek = null;
+    if (m.trajanja.length > 0) {
+      const zbroj = m.trajanja.reduce((a, b) => a + b, 0);
+      prosjek = +(zbroj / m.trajanja.length).toFixed(1);
+    }
+    return { mjesec: m.mjesec, broj: m.broj, prosjek_dana: prosjek };
+  });
+
+  res.json({ analytics: rezultat });
+});
+
+app.get("/api/status/:code", async (req, res) => {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("code, title, status, created_at, started_at, completed_at")
+    .eq("code", req.params.code)
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data)
+    return res.status(404).json({ error: "Nalog s tom sifrom ne postoji." });
+
+  res.json({ status: data });
+});
+
+app.post(
+  "/api/orders/:id/photos",
+  provjeriToken,
+  upload.single("photo"),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Nema datoteke." });
+
+    const orderId = req.params.id;
+
+    const nastavak = req.file.originalname.split(".").pop();
+    const putanja = `${orderId}/${Date.now()}.${nastavak}`;
+
+    const upload1 = await supabase.storage
+      .from("photos")
+      .upload(putanja, req.file.buffer, { contentType: req.file.mimetype });
+
+    if (upload1.error)
+      return res.status(500).json({ error: upload1.error.message });
+
+    const { data: javni } = supabase.storage
+      .from("photos")
+      .getPublicUrl(putanja);
+
+    const { data, error } = await supabase
+      .from("photos")
+      .insert({ order_id: orderId, url: javni.publicUrl })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.status(201).json({ photo: data });
+  },
+);
+
+app.get("/api/orders/:id/photos", provjeriToken, async (req, res) => {
+  const { data, error } = await supabase
+    .from("photos")
+    .select("*")
+    .eq("order_id", req.params.id)
+    .order("created_at", { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ photos: data });
 });
 
 app.listen(PORT, () => {
