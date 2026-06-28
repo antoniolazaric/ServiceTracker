@@ -7,6 +7,7 @@ const multer = require("multer");
 
 const app = express();
 const PORT = 3000;
+const INSTANCE = process.env.INSTANCE_ID || "backend-local";
 
 app.use(express.json());
 
@@ -32,7 +33,7 @@ function provjeriToken(req, res, next) {
 }
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, message: "Server radi" });
+  res.json({ ok: true, instance: INSTANCE });
 });
 
 app.post("/api/login", async (req, res) => {
