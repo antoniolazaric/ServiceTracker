@@ -4,12 +4,26 @@ const { createClient } = require("@supabase/supabase-js");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
+const cors = require("cors");
 
 const app = express();
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["X-Instance"],
+  }),
+);
 const PORT = 3000;
 const INSTANCE = process.env.INSTANCE_ID || "backend-local";
 
 app.use(express.json());
+
+app.use((req, res, next) => {
+  res.set("X-Instance", INSTANCE);
+  next();
+});
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -285,6 +299,82 @@ app.get("/api/orders/:id/photos", provjeriToken, async (req, res) => {
   res.json({ photos: data });
 });
 
+app.post("/api/users", provjeriToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res
+      .status(403)
+      .json({ error: "Samo administrator moze dodavati korisnike." });
+  }
+
+  const { username, password, full_name, role } = req.body;
+
+  if (!username || !password) {
+    return res
+      .status(400)
+      .json({ error: "Korisnicko ime i lozinka su obavezni." });
+  }
+  if (role !== "admin" && role !== "serviser") {
+    return res
+      .status(400)
+      .json({ error: "Uloga mora biti admin ili serviser." });
+  }
+
+  const password_hash = await bcrypt.hash(password, 10);
+
+  const { data, error } = await supabase
+    .from("app_users")
+    .insert({ username, password_hash, full_name: full_name || username, role })
+    .select("id, username, full_name, role")
+    .single();
+
+  if (error) {
+    return res.status(400).json({ error: error.message });
+  }
+  res.status(201).json({ user: data });
+});
+
+app.get("/api/users", provjeriToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Samo administrator." });
+  }
+  const { data, error } = await supabase
+    .from("app_users")
+    .select("id, username, full_name, role")
+    .order("username");
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ users: data });
+});
+
+app.delete("/api/users/:id", provjeriToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res
+      .status(403)
+      .json({ error: "Samo administrator moze brisati korisnike." });
+  }
+
+  const { data: meta, error: e0 } = await supabase
+    .from("app_users")
+    .select("username")
+    .eq("id", req.params.id)
+    .maybeSingle();
+
+  if (e0) return res.status(500).json({ error: e0.message });
+  if (!meta) return res.status(404).json({ error: "Korisnik ne postoji." });
+
+  if (meta.username === req.user.username) {
+    return res
+      .status(400)
+      .json({ error: "Ne mozete obrisati vlastiti racun." });
+  }
+
+  const { error } = await supabase
+    .from("app_users")
+    .delete()
+    .eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
 app.listen(PORT, () => {
   console.log(`Server slusa na http://localhost:${PORT}`);
 });
