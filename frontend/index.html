@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="hr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ServiceTracker</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f4f4f4;
+      }
+      .card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin-bottom: 15px;
+      }
+      input,
+      button,
+      select {
+        padding: 8px;
+        margin: 4px 0;
+        font-size: 14px;
+      }
+      button {
+        background: #2c7;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #1b6;
+      }
+      .error {
+        color: #c33;
+      }
+      label {
+        display: block;
+        margin-top: 8px;
+        font-size: 13px;
+        color: #555;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px;
+        border-bottom: 1px solid #eee;
+        font-size: 14px;
+      }
+      .status {
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: white;
+      }
+      .zaprimljeno {
+        background: #e9a;
+      }
+      .u_tijeku {
+        background: #59c;
+      }
+      .zavrseno {
+        background: #2c7;
+      }
+      .filters {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin: 4px 0;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>ServiceTracker</h1>
+
+      <div class="card" v-if="!token">
+        <h2>Prijava</h2>
+        <label>Korisnicko ime</label>
+        <input v-model="username" placeholder="admin" />
+        <label>Lozinka</label>
+        <input v-model="password" type="password" placeholder="lozinka" />
+        <br />
+        <button @click="login">Prijavi se</button>
+        <p class="error" v-if="error">{{ error }}</p>
+      </div>
+
+      <div v-if="token">
+        <div class="card">
+          <p>
+            Prijavljen kao <strong>{{ name }}</strong> ({{ role }})
+            <button @click="logout" style="float: right">Odjava</button>
+          </p>
+          <p v-if="instance" style="font-size: 12px; color: #777; margin: 0">
+            Zadnji zahtjev posluzio: <strong>{{ instance }}</strong>
+            <button
+              @click="loadOrders"
+              style="font-size: 11px; padding: 2px 8px; margin-left: 8px"
+            >
+              Osvjezi
+            </button>
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>Novi nalog</h2>
+          <label>Klijent *</label>
+          <input v-model="novi.client_name" placeholder="Ime klijenta" />
+          <label>Telefon</label>
+          <input
+            v-model="novi.client_phone"
+            placeholder="Telefon (nije obavezno)"
+          />
+          <label>Naslov *</label>
+          <input v-model="novi.title" placeholder="Kratak opis problema" />
+          <label>Opis</label>
+          <input
+            v-model="novi.description"
+            placeholder="Detaljniji opis (nije obavezno)"
+          />
+          <br />
+          <button @click="createOrder">Spremi nalog</button>
+          <p class="error" v-if="createError">{{ createError }}</p>
+        </div>
+
+        <div class="card">
+          <h2>Nalozi</h2>
+          <div class="filters">
+            <label>Status:</label>
+            <select v-model="filterStatus" @change="loadOrders">
+              <option value="">Svi</option>
+              <option value="zaprimljeno">Zaprimljeno</option>
+              <option value="u_tijeku">U tijeku</option>
+              <option value="zavrseno">Zavrseno</option>
+            </select>
+            <input
+              v-model="filterClient"
+              @input="loadOrders"
+              placeholder="Filtriraj po klijentu"
+            />
+          </div>
+
+          <table v-if="orders.length">
+            <thead>
+              <tr>
+                <th>Sifra</th>
+                <th>Klijent</th>
+                <th>Naslov</th>
+                <th>Status</th>
+                <th>Promijeni</th>
+                <th v-if="role === 'admin'">Obrisi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="o in orders" :key="o.id">
+                <td
+                  style="
+                    cursor: pointer;
+                    color: #1b6;
+                    text-decoration: underline;
+                  "
+                  @click="openOrder(o)"
+                >
+                  {{ o.code }}
+                </td>
+                <td>{{ o.client_name }}</td>
+                <td>{{ o.title }}</td>
+                <td>
+                  <span class="status" :class="o.status">{{ o.status }}</span>
+                </td>
+                <td>
+                  <select
+                    :value="o.status"
+                    @change="changeStatus(o, $event.target.value)"
+                  >
+                    <option value="zaprimljeno">Zaprimljeno</option>
+                    <option value="u_tijeku">U tijeku</option>
+                    <option value="zavrseno">Zavrseno</option>
+                  </select>
+                </td>
+                <td v-if="role === 'admin'">
+                  <button @click="deleteOrder(o)" style="background: #c33">
+                    Obrisi
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else>Nema naloga.</p>
+        </div>
+
+        <div class="card" v-if="role === 'admin'">
+          <h2>Upravljanje korisnicima</h2>
+          <label>Korisnicko ime *</label>
+          <input v-model="newUser.username" placeholder="npr. ivan" />
+          <label>Ime i prezime</label>
+          <input v-model="newUser.full_name" placeholder="npr. Ivan Maric" />
+          <label>Lozinka *</label>
+          <input
+            v-model="newUser.password"
+            type="password"
+            placeholder="lozinka"
+          />
+          <label>Uloga</label>
+          <select v-model="newUser.role">
+            <option value="serviser">Serviser</option>
+            <option value="admin">Admin</option>
+          </select>
+          <br />
+          <button @click="createUser">Dodaj korisnika</button>
+          <p class="error" v-if="userError">{{ userError }}</p>
+
+          <table v-if="users.length">
+            <thead>
+              <tr>
+                <th>Korisnik</th>
+                <th>Ime</th>
+                <th>Uloga</th>
+                <th>Obrisi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in users" :key="u.id">
+                <td>{{ u.username }}</td>
+                <td>{{ u.full_name }}</td>
+                <td>{{ u.role }}</td>
+                <td>
+                  <button
+                    v-if="u.username !== loginUsername"
+                    @click="deleteUser(u)"
+                    style="background: #c33"
+                  >
+                    Obrisi
+                  </button>
+                  <span v-else style="color: #999; font-size: 12px">(vi)</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2>Analitika po mjesecu</h2>
+          <button @click="loadAnalytics">Osvjezi analitiku</button>
+          <table v-if="analytics.length">
+            <thead>
+              <tr>
+                <th>Mjesec</th>
+                <th>Broj poslova</th>
+                <th>Prosj. trajanje (dana)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="a in analytics" :key="a.mjesec">
+                <td>{{ a.mjesec }}</td>
+                <td>{{ a.broj }}</td>
+                <td>{{ a.prosjek_dana !== null ? a.prosjek_dana : '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else>Klikni "Osvjezi analitiku" za prikaz.</p>
+        </div>
+
+        <div class="card" v-if="selected">
+          <h2>
+            Detalj naloga {{ selected.code }}
+            <button
+              @click="selected = null"
+              style="float: right; background: #999"
+            >
+              Zatvori
+            </button>
+          </h2>
+          <p>
+            <strong>Klijent:</strong> {{ selected.client_name }} ({{
+            selected.client_phone || '-' }})
+          </p>
+          <p><strong>Naslov:</strong> {{ selected.title }}</p>
+          <p><strong>Opis:</strong> {{ selected.description || '-' }}</p>
+          <p>
+            <strong>Status:</strong>
+            <span class="status" :class="selected.status"
+              >{{ selected.status }}</span
+            >
+          </p>
+
+          <h3>Napomene</h3>
+          <ul>
+            <li v-for="n in notes" :key="n.id">
+              {{ n.body }}
+              <small style="color: #999">&mdash; {{ n.author }}</small>
+            </li>
+          </ul>
+          <input
+            v-model="newNote"
+            placeholder="Nova napomena"
+            style="width: 60%"
+          />
+          <button @click="addNote">Dodaj</button>
+
+          <h3>Fotografije</h3>
+          <div>
+            <img
+              v-for="p in photos"
+              :key="p.id"
+              :src="p.url"
+              style="width: 120px; margin: 5px; border-radius: 4px"
+            />
+          </div>
+          <input type="file" @change="selectPhoto" accept="image/*" />
+          <button @click="uploadPhoto">Posalji sliku</button>
+        </div>
+      </div>
+
+      <div class="card" v-if="!token">
+        <h2>Provjera statusa (za klijente)</h2>
+        <input
+          v-model="checkCode"
+          placeholder="Upisi sifru naloga, npr. ST-2026-2113"
+        />
+        <button @click="checkStatus">Provjeri</button>
+        <div v-if="checkResult">
+          <p><strong>{{ checkResult.title }}</strong></p>
+          <p>
+            Status:
+            <span class="status" :class="checkResult.status"
+              >{{ checkResult.status }}</span
+            >
+          </p>
+        </div>
+        <p class="error" v-if="checkError">{{ checkError }}</p>
+      </div>
+    </div>
+
+    <script>
+      const { createApp } = Vue;
+      const API = "http://localhost:8080/api";
+
+      createApp({
+        data() {
+          return {
+            username: "",
+            password: "",
+            token: null,
+            name: "",
+            role: "",
+            error: "",
+            loginUsername: "",
+            orders: [],
+            filterStatus: "",
+            filterClient: "",
+            novi: {
+              client_name: "",
+              client_phone: "",
+              title: "",
+              description: "",
+            },
+            createError: "",
+            selected: null,
+            notes: [],
+            photos: [],
+            newNote: "",
+            photoFile: null,
+            analytics: [],
+            checkCode: "",
+            checkResult: null,
+            checkError: "",
+            users: [],
+            newUser: {
+              username: "",
+              full_name: "",
+              password: "",
+              role: "serviser",
+            },
+            userError: "",
+            instance: "",
+          };
+        },
+        methods: {
+          async login() {
+            this.error = "";
+            try {
+              const res = await fetch(API + "/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  username: this.username,
+                  password: this.password,
+                }),
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                this.error = data.error || "Greska pri prijavi.";
+                return;
+              }
+              this.token = data.token;
+              this.name = data.name;
+              this.loginUsername = this.username;
+              this.role = data.role;
+              this.loadOrders();
+              if (this.role === "admin") this.loadUsers();
+            } catch (e) {
+              this.error = "Backend nije dostupan.";
+            }
+          },
+          async loadOrders() {
+            let url = API + "/orders?";
+            if (this.filterStatus) url += "status=" + this.filterStatus + "&";
+            if (this.filterClient)
+              url += "client=" + encodeURIComponent(this.filterClient);
+            const res = await fetch(url, {
+              headers: { Authorization: "Bearer " + this.token },
+            });
+            this.instance = res.headers.get("X-Instance") || "";
+            const data = await res.json();
+            this.orders = data.orders || [];
+          },
+          async createOrder() {
+            this.createError = "";
+            if (!this.novi.client_name || !this.novi.title) {
+              this.createError = "Klijent i naslov su obavezni.";
+              return;
+            }
+            const res = await fetch(API + "/orders", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + this.token,
+              },
+              body: JSON.stringify(this.novi),
+            });
+            if (res.ok) {
+              this.novi = {
+                client_name: "",
+                client_phone: "",
+                title: "",
+                description: "",
+              };
+              this.loadOrders();
+            } else {
+              const data = await res.json();
+              this.createError = data.error || "Greska pri spremanju.";
+            }
+          },
+          async changeStatus(order, newStatus) {
+            await fetch(API + "/orders/" + order.id, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + this.token,
+              },
+              body: JSON.stringify({ status: newStatus }),
+            });
+            this.loadOrders();
+          },
+          async deleteOrder(order) {
+            if (!confirm("Obrisati nalog " + order.code + "?")) return;
+            await fetch(API + "/orders/" + order.id, {
+              method: "DELETE",
+              headers: { Authorization: "Bearer " + this.token },
+            });
+            this.loadOrders();
+          },
+          async openOrder(order) {
+            this.selected = order;
+            await this.loadNotes();
+            await this.loadPhotos();
+          },
+          async loadNotes() {
+            const res = await fetch(
+              API + "/orders/" + this.selected.id + "/notes",
+              {
+                headers: { Authorization: "Bearer " + this.token },
+              },
+            );
+            const data = await res.json();
+            this.notes = data.notes || [];
+          },
+          async addNote() {
+            if (!this.newNote) return;
+            await fetch(API + "/orders/" + this.selected.id + "/notes", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + this.token,
+              },
+              body: JSON.stringify({ body: this.newNote }),
+            });
+            this.newNote = "";
+            this.loadNotes();
+          },
+          async loadPhotos() {
+            const res = await fetch(
+              API + "/orders/" + this.selected.id + "/photos",
+              {
+                headers: { Authorization: "Bearer " + this.token },
+              },
+            );
+            const data = await res.json();
+            this.photos = data.photos || [];
+          },
+          selectPhoto(event) {
+            this.photoFile = event.target.files[0];
+          },
+          async uploadPhoto() {
+            if (!this.photoFile) return;
+            const form = new FormData();
+            form.append("photo", this.photoFile);
+            await fetch(API + "/orders/" + this.selected.id + "/photos", {
+              method: "POST",
+              headers: { Authorization: "Bearer " + this.token },
+              body: form,
+            });
+            this.photoFile = null;
+            this.loadPhotos();
+          },
+          async loadAnalytics() {
+            const res = await fetch(API + "/analytics", {
+              headers: { Authorization: "Bearer " + this.token },
+            });
+            const data = await res.json();
+            this.analytics = data.analytics || [];
+          },
+          async loadUsers() {
+            const res = await fetch(API + "/users", {
+              headers: { Authorization: "Bearer " + this.token },
+            });
+            const data = await res.json();
+            this.users = data.users || [];
+          },
+          async createUser() {
+            this.userError = "";
+            if (!this.newUser.username || !this.newUser.password) {
+              this.userError = "Korisnicko ime i lozinka su obavezni.";
+              return;
+            }
+            const res = await fetch(API + "/users", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + this.token,
+              },
+              body: JSON.stringify(this.newUser),
+            });
+            if (res.ok) {
+              this.newUser = {
+                username: "",
+                full_name: "",
+                password: "",
+                role: "serviser",
+              };
+              this.loadUsers();
+            } else {
+              const data = await res.json();
+              this.userError = data.error || "Greska pri dodavanju.";
+            }
+          },
+          async deleteUser(user) {
+            if (!confirm("Obrisati korisnika " + user.username + "?")) return;
+            const res = await fetch(API + "/users/" + user.id, {
+              method: "DELETE",
+              headers: { Authorization: "Bearer " + this.token },
+            });
+            if (res.ok) {
+              this.loadUsers();
+            } else {
+              const data = await res.json();
+              this.userError = data.error || "Greska pri brisanju.";
+            }
+          },
+          async checkStatus() {
+            this.checkError = "";
+            this.checkResult = null;
+            if (!this.checkCode) return;
+            const res = await fetch(API + "/status/" + this.checkCode);
+            const data = await res.json();
+            if (!res.ok) {
+              this.checkError = data.error || "Greska.";
+              return;
+            }
+            this.checkResult = data.status;
+          },
+          logout() {
+            this.token = null;
+            this.username = "";
+            this.password = "";
+            this.orders = [];
+            this.selected = null;
+            this.users = [];
+          },
+        },
+      }).mount("#app");
+    </script>
+  </body>
+</html>
